@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$ROOT/scripts/common.sh"
+usage() { cat <<'EOF'
+Usage: ./palm-build --sdk VERSION --project PATH [--workspace PATH] [--shell] -- COMMAND [ARGS...]
+
+Runs an arbitrary command in a Palm OS SDK environment using Docker on Linux/macOS.
+--shell opens an interactive Bash session (requires a terminal). Examples:
+  ./palm-build --sdk 3.1 --project examples/hello-world -- make
+  ./palm-build --sdk 3.5 --project "/path/My App" -- make clean
+  ./palm-build --sdk 3.1 --project /path/app -- m68k-palmos-gcc --version
+  ./palm-build --sdk 3.1 --workspace /path/to/workspace --project /path/to/workspace/app -- make
+EOF
+}
+sdk= project= workspace_arg= shell_mode=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sdk|--project|--workspace)
+      [ $# -ge 2 ] && [ -n "$2" ] && [[ $2 != --* ]] || { echo "Missing value for $1" >&2; exit 2; }
+      case "$1" in --sdk) sdk=$2 ;; --project) project=$2 ;; --workspace) workspace_arg=$2 ;; esac
+      shift 2 ;;
+    --shell) shell_mode=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    --) shift; break ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+[ -n "$sdk" ] && [ -n "$project" ] || { usage >&2; exit 2; }
+sdk_pattern='^[0-9]+([.][0-9]+)?(r[0-9]+)?$'
+[[ $sdk =~ $sdk_pattern ]] || { echo "Invalid SDK version: $sdk" >&2; exit 2; }
+[ -d "$project" ] || { echo "Project directory does not exist: $project" >&2; exit 2; }
+project=$(CDPATH= cd -- "$project" && pwd); sdk_path=$(sdk_dir "$sdk")
+[ -d "$sdk_path" ] || { echo "Palm OS SDK $sdk is not installed. Run ./setup.sh and select it." >&2; exit 2; }
+# A project Makefile may legitimately refer to sibling paths (for example,
+# ../common). When the project belongs to a Git checkout, mount that checkout
+# and retain the project's relative working directory inside the container.
+workspace=$project
+container_workdir=/workspace
+if [ -n "$workspace_arg" ]; then
+  [ -d "$workspace_arg" ] || { echo "Workspace directory does not exist: $workspace_arg" >&2; exit 2; }
+  workspace=$(CDPATH= cd -- "$workspace_arg" && pwd)
+  case "$project" in
+    "$workspace") container_workdir=/workspace ;;
+    "$workspace"/*) container_workdir="/workspace/${project#"$workspace"/}" ;;
+    *) echo "Project must be inside --workspace: $workspace" >&2; exit 2 ;;
+  esac
+elif git_root=$(git -C "$project" rev-parse --show-toplevel 2>/dev/null); then
+  git_root=$(CDPATH= cd -- "$git_root" && pwd)
+  case "$project" in
+    "$git_root") workspace=$git_root; container_workdir=/workspace ;;
+    "$git_root"/*) workspace=$git_root; container_workdir="/workspace/${project#"$git_root"/}" ;;
+  esac
+fi
+backend=${PALMDEV_BACKEND:-$(host_backend)}
+[ "$backend" = docker ] || { echo 'Only the Docker backend is supported; rerun setup.sh.' >&2; exit 2; }
+command -v docker >/dev/null || { echo 'Docker is unavailable. Install/start Docker and run ./setup.sh.' >&2; exit 1; }
+tty_args=()
+if [ "$shell_mode" = 1 ]; then
+  is_tty || { echo '--shell requires an interactive terminal.' >&2; exit 2; }
+  [ $# -eq 0 ] || { echo '--shell cannot be combined with a command.' >&2; exit 2; }
+  tty_args=(-it); set -- /bin/bash
+elif [ $# -eq 0 ]; then echo 'Missing command after --' >&2; exit 2; fi
+image=${PALMDEV_IMAGE:-$TOOLCHAIN_IMAGE}; uidgid="$(id -u):$(id -g)"; platform=$(docker_platform)
+env_args=(-e "PALMOS_SDK=/opt/palmdev/sdk-$sdk" -e "PALMOS_SDK_VERSION=$sdk" -e PALMDEV_DIR=/toolchain)
+if [ -d "$LOCAL/sdk/handspring/Include" ]; then env_args+=(-e HANDSPRING_INCLUDE=/toolchain/.local/sdk/handspring/Include); fi
+# Give each invocation its own specs file, including concurrent builds of one SDK.
+mkdir -p "$LOCAL/config"
+specs_dir=$(mktemp -d "$LOCAL/config/specs-$sdk.XXXXXX")
+trap 'rm -rf "$specs_dir"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+# Keep compatibility headers after SDK headers: prc-tools also has a dummy PalmOS.h.
+docker run --rm --platform "$platform" --user "$uidgid" --entrypoint /bin/bash \
+  -v "$sdk_path:/opt/palmdev/sdk-$sdk:ro" -v "$specs_dir:/config" "$image" -euo pipefail -c \
+  "palmdev-prep --quiet --dump-specs m68k-palmos /opt/palmdev /opt/palmdev-toolchain/usr/share/prc-tools | sed 's|-isystem /opt/palmdev-toolchain/usr/share/prc-tools/include|-idirafter /opt/palmdev-toolchain/usr/share/prc-tools/include|' > /config/specs"
+[ -s "$specs_dir/specs" ] || { echo "palmdev-prep did not produce GCC specs for SDK $sdk." >&2; exit 1; }
+# Pass the command as argv. No shell quoting or interpolation of user arguments.
+docker run --rm ${tty_args[@]+"${tty_args[@]}"} --platform "$platform" --user "$uidgid" \
+  --entrypoint /usr/bin/env -w "$container_workdir" -v "$workspace:/workspace" \
+  -v "$sdk_path:/opt/palmdev/sdk-$sdk:ro" \
+  -v "$specs_dir/specs:/opt/palmdev-toolchain/usr/lib/gcc-lib/m68k-palmos/2.95.3-kgpd/specs:ro" \
+  -v "$ROOT:/toolchain:ro" "${env_args[@]}" "$image" "$@"

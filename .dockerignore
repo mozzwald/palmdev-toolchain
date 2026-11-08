@@ -1,0 +1,9 @@
+.git
+.local
+examples/*/build
+templates/*/build
+*.prc
+*.ro
+*.grc
+__pycache__
+*.pyc
