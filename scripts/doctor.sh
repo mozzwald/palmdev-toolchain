@@ -12,16 +12,7 @@ elif ! docker info >/dev/null 2>&1; then echo 'Docker daemon: UNAVAILABLE'; fail
 else
   echo "Docker: $(docker --version)"
   if docker image inspect "$image" >/dev/null 2>&1; then
-    if ! docker run --rm --platform "$(docker_platform)" --entrypoint /bin/bash "$image" -euo pipefail -c '
-      m68k-palmos-gcc --version
-      command -v pilrc
-      pilrc_version=$(pilrc 2>&1) || [ "$?" = 1 ]
-      [[ "$pilrc_version" == PilRC* ]]
-      printf "%s\n" "$pilrc_version" | sed -n "1p"
-      command -v build-prc
-      command -v palmdev-prep
-      test -f /usr/m68k-palmos/lib/crt0.o
-    '; then echo 'Tool availability: FAIL'; fail=1; fi
+    if ! check_container_tools; then echo 'Container tools/Python: FAIL — rerun ./setup.sh'; fail=1; fi
     installed=$(docker image inspect --format '{{ index .Config.Labels "palmdev.toolchain-key" }}' "$image")
     if [ "$installed" != "$(toolchain_key)" ]; then echo 'Toolchain revision: STALE — rerun ./setup.sh'; fail=1; fi
   else echo 'Toolchain image: MISSING — run ./setup.sh'; fail=1; fi

@@ -38,3 +38,10 @@ h.update(sys.argv[2].encode())
 print(h.hexdigest())
 PY
 }
+
+# SDK-independent checks in the actual image, including build-time Python.
+check_container_tools() {
+  docker run --rm --platform "$(docker_platform)" --user "$(id -u):$(id -g)" \
+    --entrypoint /bin/bash -v "$ROOT:/toolchain:ro" \
+    "${PALMDEV_IMAGE:-$TOOLCHAIN_IMAGE}" /toolchain/scripts/check-container-tools.sh
+}

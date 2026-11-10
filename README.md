@@ -28,7 +28,7 @@ For an external project:
 
 The wrapper exports `PALMOS_SDK`, `PALMDEV_DIR`, and (when installed) `HANDSPRING_INCLUDE`. It automatically mounts a Git repository root; use `--workspace` for existing Makefiles that reach sibling repositories outside that root. Applications own their Makefiles; see `templates/simple-prc` and `examples/hello-world` for conventional PilRC / `build-prc` use.
 
-Diagnostics: `./scripts/doctor.sh`; verify every installed SDK: `./scripts/verify-toolchain.sh`.
+Diagnostics: `./scripts/doctor.sh`; verify every installed SDK: `./scripts/verify-toolchain.sh`. Both check the actual container tools and Python 3 before reporting success. Python is included for project build helpers; project-specific Python packages and emulator test dependencies are supplied by each project.
 
 Setup verifies the tools and builds Hello World for every installed SDK. Outputs are kept separately under `examples/hello-world/build/sdk-VERSION/`. Automated fixture tests use temporary checkouts and no real SDK licenses: `python3 tests/test-toolchain.py`.
 

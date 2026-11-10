@@ -311,6 +311,17 @@ class WrapperTests(IsolatedTest):
         self.assertEqual(self.build(['true'], env={'FAKE_SPECS_FAIL': '1'}).returncode, 12)
         self.assertFalse(list((self.root / '.local/config').glob('specs-*')))
 
+    def test_project_environment_contract(self):
+        code = 'import json,os; print(json.dumps({k:os.environ.get(k) for k in ("PALMOS_SDK", "PALMOS_SDK_VERSION", "PALMDEV_DIR", "HANDSPRING_INCLUDE")}))'
+        p = self.build([sys.executable, '-c', code])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout), {
+            'PALMOS_SDK': '/opt/palmdev/sdk-3.5',
+            'PALMOS_SDK_VERSION': '3.5',
+            'PALMDEV_DIR': '/toolchain',
+            'HANDSPRING_INCLUDE': None,
+        })
+
     def test_git_root_and_workspace(self):
         subprocess.run(['git', '-C', str(self.project), 'init', '-q'], check=True)
         nested = self.project / 'apps/my app'

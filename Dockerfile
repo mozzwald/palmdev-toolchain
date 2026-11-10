@@ -16,4 +16,7 @@ RUN git clone "$PRC_TOOLS_REPO" prc-tools && cd prc-tools && git checkout --deta
 RUN ln -s /opt/palmdev-toolchain/usr/m68k-palmos /usr/m68k-palmos && ln -s /opt/palmdev-toolchain/usr/arm-palmos /usr/arm-palmos
 ENV PATH=/opt/palmdev-toolchain/usr/m68k-palmos/bin:/opt/palmdev-toolchain/usr/arm-palmos/bin:/opt/palmdev-toolchain/usr/bin:/opt/palmdev-toolchain/bin:$PATH GCC_EXEC_PREFIX=/opt/palmdev-toolchain/usr/lib/gcc-lib/ LIBRARY_PATH=/opt/palmdev-toolchain/usr/m68k-palmos/lib
 WORKDIR /work
+# Build-time generators and audits run inside the container too. This layer
+# follows the compiler build so existing compiler layers can be reused.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
 CMD ["/bin/sh"]
